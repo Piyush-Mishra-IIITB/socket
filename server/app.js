@@ -1,50 +1,49 @@
 import express from "express";
-import { Server } from "socket.io";
 import { createServer } from "http";
+import { Server } from "socket.io";
 import cors from "cors";
 
 const app = express();
 app.use(cors());
 
-const server = createServer(app);
+const httpServer = createServer(app);
 
-const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:5173",
-    methods: ["GET", "POST"],
-    credentials: true
-  }
+const io = new Server(httpServer, {
+  cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-const port = 3000;
-const users = new Set();
+const users = new Map(); // socketId -> socket
 
 io.on("connection", (socket) => {
-  users.add(socket.id);
-  console.log("socket id :", socket.id);
+  console.log("Connected:", socket.id);
 
-  io.emit("online_user", Array.from(users));
+  users.set(socket.id, socket);
+  io.emit("online-users", Array.from(users.keys()));
 
-  socket.on("message", ({ id, msg }) => {
-    console.log("to", id, "msg", msg);
-
-    io.to(id).emit("receive-msg", {
-      from: socket.id,
-      msg
-    });
+  // CALL USER
+  socket.on("call-user", ({ to, offer }) => {
+    io.to(to).emit("incoming-call", { from: socket.id, offer });
   });
 
+  // ANSWER CALL
+  socket.on("answer-call", ({ to, answer }) => {
+    io.to(to).emit("call-answered", { from: socket.id, answer });
+  });
+
+  // ICE CANDIDATE
+  socket.on("ice-candidate", ({ to, candidate }) => {
+    io.to(to).emit("ice-candidate", { from: socket.id, candidate });
+  });
+socket.on("reject-call", ({ to }) => {
+  io.to(to).emit("call-rejected");
+});
+socket.on("hangup", ({ to }) => {
+  io.to(to).emit("hangup");
+});
   socket.on("disconnect", () => {
-    console.log("disconnect", socket.id);
     users.delete(socket.id);
-    io.emit("online_user", Array.from(users));
+    io.emit("online-users", Array.from(users.keys()));
   });
 });
 
-server.listen(port, () => {
-  console.log("server is running");
-});
-
-app.get("/", (req, res) => {
-  res.send("hii");
-});
+httpServer.listen(3000, () => console.log("Server running"));
